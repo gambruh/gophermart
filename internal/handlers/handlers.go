@@ -66,13 +66,26 @@ func (h *WebService) Register(w http.ResponseWriter, r *http.Request) {
 		log.Println("Username is taken")
 		w.WriteHeader(http.StatusConflict)
 	case nil:
+		// Generate a token or session ID
+		token, err := helpers.GenerateToken(data.Login)
+		if err != nil {
+			fmt.Println("error when generating token", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Set the token as a cookie in the response
+		http.SetCookie(w, &http.Cookie{
+			Name:  "token",
+			Value: token,
+		})
+
+		// Return a success response
 		w.WriteHeader(http.StatusOK)
 	default:
 		log.Println("Unexpected case in new user registration:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
-
-	http.Redirect(w, r, "/api/user/login", http.StatusSeeOther)
 }
 
 func (h *WebService) Login(w http.ResponseWriter, r *http.Request) {
