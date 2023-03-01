@@ -71,6 +71,8 @@ func (h *WebService) Register(w http.ResponseWriter, r *http.Request) {
 		log.Println("Unexpected case in new user registration:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
+
+	http.Redirect(w, r, "/api/user/login", http.StatusSeeOther)
 }
 
 func (h *WebService) Login(w http.ResponseWriter, r *http.Request) {
