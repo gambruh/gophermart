@@ -165,7 +165,13 @@ func (s *SQLdb) CheckNDropTables() error {
 	}
 	if check {
 		_, err = db.Exec(dropPasswordsTableQuery)
+		if err != nil {
+			return err
+		}
 		_, err = db.Exec(dropUsersTableQuery)
+		if err != nil {
+			return err
+		}
 	}
 	if err != nil {
 		fmt.Printf("error dropping a table: %v", err)

@@ -6,6 +6,8 @@ import (
 	"net/http"
 )
 
+type UserID string
+
 var CheckUsernameQuery = `
 	"SELECT user_id FROM auth_tokens WHERE token = $1"
 
@@ -33,7 +35,8 @@ func AuthMiddleware(db *sql.DB) func(http.Handler) http.Handler {
 			}
 
 			// Attach the user ID to the request context
-			ctx := context.WithValue(r.Context(), "userID", userID)
+
+			ctx := context.WithValue(r.Context(), UserID("UserID"), userID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
