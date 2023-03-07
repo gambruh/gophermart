@@ -151,7 +151,6 @@ func (h *WebService) PostOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := r.Context().Value(config.UserID("userID"))
-	fmt.Println("Context value is:", username)
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -167,7 +166,6 @@ func (h *WebService) PostOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Add("Content-type", "application/json")
-	fmt.Println("Order number is:", ordernumber)
 	//attempt to write a new order into storage
 	err = h.Storage.SetOrder(ordernumber, username.(string))
 	switch err {

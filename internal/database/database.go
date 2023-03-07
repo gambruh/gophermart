@@ -344,7 +344,6 @@ func (s *SQLdb) SetOrder(ordernumber string, username string) error {
 	case err == sql.ErrNoRows:
 		t := time.Now()
 		formattedTime := t.Format(time.RFC3339)
-		fmt.Println("Timestamp:", formattedTime)
 		_, e := s.db.Exec(insertNewOrderQuery, ordernumber, id, "NEW", formattedTime)
 		if e != nil {
 			return e
@@ -378,12 +377,10 @@ func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 		}
 		ords = append(ords, ord)
 	}
-
 	// проверяем на ошибки
 	err = rows.Err()
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("resmap: %v\n", ords)
 	return ords, nil
 }
