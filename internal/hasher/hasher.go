@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/gambruh/gophermart/internal/helpers"
+	"github.com/gambruh/gophermart/internal/auth"
 )
 
 func CalcHash(key string, str string) string {
@@ -17,7 +17,7 @@ func CalcHash(key string, str string) string {
 	return fmt.Sprintf("%x", sign)
 }
 
-func CheckHash(creds helpers.LoginData, key string) bool {
+func CheckHash(creds auth.LoginData, key string) bool {
 	//TODO
 	//вычислить хэш пароля из входящей структуры
 	//обратиться к базе данных, запросить строку хэша из базы

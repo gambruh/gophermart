@@ -2,56 +2,66 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
+	"time"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gambruh/gophermart/internal/config"
 )
 
-type UserID string
-
-var CheckUsernameQuery = `
-	"SELECT user_id FROM auth_tokens WHERE token = $1"
-
-`
-
-func NewUser() error {
-	return nil
+type LoginData struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
 }
 
-func AuthMiddleware(db *sql.DB) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := r.Header.Get("Authorization")
-			if token == "" {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
+func GenerateToken(login string) (string, error) {
+	// Create a new token object, specifying the signing method and the claims
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"userID": login,
+		"exp":    time.Now().Add(time.Hour * 8).Unix(),
+	})
 
-			// Query the database to check if the token is valid
-			var userID int
-			err := db.QueryRow("SELECT user_id FROM auth_tokens WHERE token = $1", token).Scan(&userID)
-			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
+	// Sign the token with the secret key
+	tokenString, err := token.SignedString([]byte(config.Cfg.Key))
+	if err != nil {
+		return "", err
+	}
 
-			// Attach the user ID to the request context
+	return tokenString, nil
+}
 
-			ctx := context.WithValue(r.Context(), UserID("UserID"), userID)
-			next.ServeHTTP(w, r.WithContext(ctx))
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		type MyCustomClaims struct {
+			UserID string `json:"userID"`
+			jwt.StandardClaims
+		}
+
+		cookie, err := r.Cookie("gophermart-auth")
+		if err != nil {
+			//fmt.Println("can't get cookie!")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		token, err := jwt.ParseWithClaims(cookie.Value, &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(config.Cfg.Key), nil
 		})
-	}
-}
+		if err != nil {
+			//fmt.Println("error when parsing token!")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 
-func protectedHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	userID := ctx.Value("userID").(int)
+		claims, ok := token.Claims.(*MyCustomClaims)
 
-	// Check if user is logged in
-	if userID == 0 {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
+		if !ok || !token.Valid {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 
-	// Handle request for authenticated user
-	// ...
+		ctx := context.WithValue(r.Context(), config.UserID("userID"), claims.UserID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

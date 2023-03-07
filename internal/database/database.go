@@ -5,23 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/gambruh/gophermart/internal/config"
+	"github.com/gambruh/gophermart/internal/orders"
 	_ "github.com/lib/pq"
 )
 
-type Table struct {
-	Name    string
-	Column  string
-	Coltype string
-}
-
 type SQLdb struct {
-	db *sql.DB
+	db      *sql.DB
+	address string
 }
-
-var Tables []Table
 
 // SQL queries
 var checkTableExistsQuery = `
@@ -50,21 +45,25 @@ var createPasswordsTableQuery = `
 				ON DELETE CASCADE
 	);
 `
-var dropTableQuery = `
-	DROP TABLE $1 CASCADE;
-`
+
 var dropPasswordsTableQuery = `
 	DROP TABLE passwords CASCADE;
 `
+
 var dropUsersTableQuery = `
 	DROP TABLE users CASCADE;
+`
+var dropOrdersTableQuery = `
+	DROP TABLE orders CASCADE;
 `
 
 var createOrdersTableQuery = `
 	CREATE TABLE orders (
-		id SERIAL PRIMARY KEY,
-		number bigint UNIQUE,
-		user_id integer,
+		number TEXT UNIQUE NOT NULL PRIMARY KEY,
+		user_id integer NOT NULL,
+		status text NOT NULL,
+		accrual INTEGER,
+		uploaded_at TIMESTAMP WITH TIME ZONE,
 		CONSTRAINT fk_ousers
 			FOREIGN KEY (user_id)
 				REFERENCES users(id)
@@ -94,19 +93,55 @@ var addNewUserQuery = `
 	VALUES ((SELECT id FROM new_user), $2);
 `
 
+var checkOrderNumberQuery = `
+	WITH new_order AS (
+	SELECT orders (id)
+	WHERE ($1);
+)
+`
+
+var insertNewOrderQuery = `
+	INSERT INTO orders(number, user_id, status, uploaded_at) 
+	VALUES ($1,$2,$3,TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'));
+`
+
+var getOrdersQuery = `
+	SELECT orders.number, orders.status, orders.accrual, orders.uploaded_at, users.username
+	FROM orders
+	JOIN users ON orders.user_id = users.id;
+`
+
+var getOrdersByUserQuery = `
+	SELECT orders.number, orders.status, orders.accrual, orders.uploaded_at
+	FROM orders
+	JOIN users ON orders.user_id = users.id
+	WHERE users.username = $1;
+`
+
+var getUsernameByNumberQuery = `
+	SELECT users.username
+	FROM orders
+	JOIN users ON orders.user_id = users.id
+	WHERE orders.number = $1;
+`
+
 // типы ошибок
 var (
 	ErrTableDoesntExist = errors.New("table doesn't exist")
 	ErrUsernameIsTaken  = errors.New("username is taken")
+	ErrWrongPassword    = errors.New("wrong password")
 )
 
 func NewSQLdb(postgresStr string) *SQLdb {
 	db, _ := sql.Open("postgres", postgresStr)
-	return &SQLdb{db: db}
+	return &SQLdb{
+		db:      db,
+		address: postgresStr,
+	}
 }
 
-func CheckConn(dbAddress string) error {
-	db, err := sql.Open("postgres", dbAddress)
+func (s *SQLdb) CheckConn(dbAddress string) error {
+	db, err := sql.Open("postgres", s.address)
 	if err != nil {
 		fmt.Printf("error while opening DB:%v\n", err)
 		return err
@@ -125,12 +160,13 @@ func CheckConn(dbAddress string) error {
 
 func (s *SQLdb) InitDatabase() {
 	s.CheckNDropTables()
-	s.CreateTables()
+	s.CreateUserTables()
+	s.CreateOrdersTable()
 }
 
-func CheckTableExists(tablename string) error {
+func (s *SQLdb) CheckTableExists(tablename string) error {
 	var check bool
-	db, err := sql.Open("postgres", config.Cfg.Database)
+	db, err := sql.Open("postgres", s.address)
 	if err != nil {
 		fmt.Printf("error opening database: %v", err)
 		return err
@@ -149,7 +185,7 @@ func CheckTableExists(tablename string) error {
 }
 
 func (s *SQLdb) CheckNDropTables() error {
-	db, err := sql.Open("postgres", config.Cfg.Database)
+	db, err := sql.Open("postgres", s.address)
 	if err != nil {
 		fmt.Printf("error opening database: %v", err)
 		return err
@@ -177,12 +213,27 @@ func (s *SQLdb) CheckNDropTables() error {
 		fmt.Printf("error dropping a table: %v", err)
 		return err
 	}
+	err = db.QueryRow(checkTableExistsQuery, "orders").Scan(&check)
+	if err != nil {
+		fmt.Printf("error checking if table exists: %v", err)
+		return err
+	}
+	if check {
+		_, err = db.Exec(dropOrdersTableQuery)
+		if err != nil {
+			return err
+		}
+	}
+	if err != nil {
+		fmt.Printf("error dropping a table: %v", err)
+		return err
+	}
 
 	return nil
 }
 
-func (s *SQLdb) CreateTables() error {
-	db, err := sql.Open("postgres", config.Cfg.Database)
+func (s *SQLdb) CreateUserTables() error {
+	db, err := sql.Open("postgres", s.address)
 	if err != nil {
 		fmt.Printf("error opening database: %v", err)
 		return err
@@ -196,10 +247,24 @@ func (s *SQLdb) CreateTables() error {
 	if err != nil {
 		return err
 	}
-	//_, err = db.Exec(createOrdersTableQuery)
-	//if err != nil {
-	//	return err
-	//}
+	_, err = db.Exec(createOrdersTableQuery)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func (s *SQLdb) CreateOrdersTable() error {
+	db, err := sql.Open("postgres", s.address)
+	if err != nil {
+		fmt.Printf("error opening database: %v", err)
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.Exec(createOrdersTableQuery)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -219,34 +284,106 @@ func (s *SQLdb) Register(login string, password string) error {
 	}
 }
 
-func (s *SQLdb) VerifyCredentials(login string, password string) (bool, error) {
+func (s *SQLdb) VerifyCredentials(login string, password string) error {
 	var (
 		id   int
 		pass string
 	)
 
-	db, err := sql.Open("postgres", config.Cfg.Database)
+	db, err := sql.Open("postgres", s.address)
 	if err != nil {
 		fmt.Printf("error opening database: %v", err)
-		return false, err
+		return err
 	}
 	defer db.Close()
 
 	err = s.db.QueryRow(checkUsernameQuery, login).Scan(&id)
 	switch err {
 	case sql.ErrNoRows:
-		return false, nil
+		return nil
 	case nil:
 	default:
 		fmt.Println("Unexpected case in checking user's credentials in database:", err)
-		return false, err
+		return err
 	}
 
 	err = s.db.QueryRow(checkPasswordQuery, id).Scan(&pass)
 	if err != nil {
 		fmt.Println("Unexpected case in checking user's password in database:", err)
-		return false, err
+		return err
 	}
 
-	return pass == password, nil
+	if pass != password {
+		return ErrWrongPassword
+	} else {
+		return nil
+	}
+}
+
+func (s *SQLdb) GetStorage() map[string]string {
+	//заглушка для применения интерфейса storage.Storage
+	return make(map[string]string)
+}
+
+//orders
+
+func (s *SQLdb) CheckOrder() {
+
+}
+
+func (s *SQLdb) SetOrder(ordernumber string, username string) error {
+	var userq string
+	var id string
+	err := s.db.QueryRow("SELECT id FROM users WHERE username = $1", username).Scan(&id)
+	if err != nil {
+		log.Println("error when trying to connect to database in SetOrder method:", err)
+		return err
+	}
+	err = s.db.QueryRow(getUsernameByNumberQuery, ordernumber).Scan(&userq)
+	switch {
+	case err == sql.ErrNoRows:
+		t := time.Now()
+		formattedTime := t.Format(time.RFC3339)
+		fmt.Println("Timestamp:", formattedTime)
+		_, e := s.db.Exec(insertNewOrderQuery, ordernumber, id, "NEW", formattedTime)
+		if e != nil {
+			return e
+		}
+		return nil
+	case userq == username:
+		return orders.ErrOrderLoadedThisUser
+	case userq != username:
+		return orders.ErrOrderLoadedAnotherUser
+	default:
+		log.Println("Unexpected error in SetOrder method:", err)
+		return err
+	}
+}
+
+func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
+	var ords []orders.Order
+	username := ctx.Value(config.UserID("userID"))
+	rows, err := s.db.Query(getOrdersByUserQuery, username)
+	if err != nil {
+		fmt.Println("error when getting orders:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ord orders.Order
+		err = rows.Scan(&ord.Number, &ord.Status, &ord.Accrual, &ord.UploadedAt)
+		if err != nil {
+			return nil, err
+		}
+		ords = append(ords, ord)
+	}
+
+	// проверяем на ошибки
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("resmap: %v\n", ords)
+	return ords, nil
 }

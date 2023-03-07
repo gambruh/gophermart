@@ -13,6 +13,7 @@ type Config struct {
 	RateLimit int    `env:"RATE_LIMIT" envDefault:"1"`
 	Key       string `env:"HASH_KEY" envDefault:""`
 	Database  string `env:"DATABASE_URI" envDefault:""`
+	Storage   bool
 }
 
 type FlagConfig struct {
@@ -21,7 +22,10 @@ type FlagConfig struct {
 	RateLimit *int
 	Key       *string
 	Database  *string
+	Storage   *bool
 }
+
+type UserID string
 
 var (
 	Cfg   Config
@@ -36,6 +40,7 @@ func InitFlags() {
 	Flags.Accrual = flag.String("r", "", "ACCRUAL_SYSTEM_ADDRESS")
 	Flags.Key = flag.String("k", "abcd", "key to hash")
 	Flags.RateLimit = flag.Int("l", 1, "max amount of goroutines working simultaneously")
+	Flags.Storage = flag.Bool("s", false, "in memory storage for lazy debugging")
 	flag.Parse()
 }
 
@@ -56,5 +61,8 @@ func SetConfig() {
 	}
 	if _, check := os.LookupEnv("RATE_LIMIT"); !check {
 		Cfg.RateLimit = *Flags.RateLimit
+	}
+	if _, check := os.LookupEnv("MEMSTORAGEUSE"); !check {
+		Cfg.Storage = *Flags.Storage
 	}
 }
