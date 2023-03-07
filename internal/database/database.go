@@ -126,7 +126,9 @@ var getUsernameByNumberQuery = `
 `
 
 var CheckIDbyUsernameQuery = `
-"SELECT id FROM users WHERE username = $1"
+	SELECT id 
+	FROM users 
+	WHERE username = $1;
 `
 
 // типы ошибок
