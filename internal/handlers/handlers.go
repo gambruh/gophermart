@@ -176,7 +176,7 @@ func (h *WebService) PostOrder(w http.ResponseWriter, r *http.Request) {
 	case orders.ErrOrderLoadedAnotherUser:
 		w.WriteHeader(http.StatusConflict)
 	default:
-		log.Println("Unexpected case in GetOrder Handler:", err)
+		log.Println("Unexpected case in PostOrder Handler:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }

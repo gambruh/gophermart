@@ -102,7 +102,7 @@ var checkOrderNumberQuery = `
 
 var insertNewOrderQuery = `
 	INSERT INTO orders(number, user_id, status, uploaded_at) 
-	VALUES ($1,$2,$3,TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM'));
+	VALUES ($1,$2,$3,TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SS"Z"TZH:TZM'));
 `
 
 var getOrdersQuery = `
@@ -123,6 +123,10 @@ var getUsernameByNumberQuery = `
 	FROM orders
 	JOIN users ON orders.user_id = users.id
 	WHERE orders.number = $1;
+`
+
+var CheckIDbyUsernameQuery = `
+"SELECT id FROM users WHERE username = $1"
 `
 
 // типы ошибок
@@ -334,7 +338,7 @@ func (s *SQLdb) CheckOrder() {
 func (s *SQLdb) SetOrder(ordernumber string, username string) error {
 	var userq string
 	var id string
-	err := s.db.QueryRow("SELECT id FROM users WHERE username = $1", username).Scan(&id)
+	err := s.db.QueryRow(CheckIDbyUsernameQuery, username).Scan(&id)
 	if err != nil {
 		log.Println("error when trying to connect to database in SetOrder method:", err)
 		return err
