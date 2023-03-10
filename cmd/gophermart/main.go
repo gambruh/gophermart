@@ -23,7 +23,7 @@ func main() {
 		defstorage = storage.NewStorage()
 	} else {
 		db := database.NewSQLdb(config.Cfg.Database)
-		//db.ClearDatabase()
+		db.InitDatabase()
 		defstorage = db
 	}
 

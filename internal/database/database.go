@@ -201,7 +201,7 @@ func (s *SQLdb) CheckConn(dbAddress string) error {
 	return nil
 }
 
-func (s *SQLdb) ClearDatabase() {
+func (s *SQLdb) InitDatabase() {
 	s.CheckNDropTables()
 	s.CreateUserTables()
 	s.CreateOrdersTable()
@@ -464,6 +464,12 @@ func (s *SQLdb) GetOrdersForAccrual() (results []string, err error) {
 		rows.Scan(&number)
 		results = append(results, number)
 	}
+
+	err = rows.Err()
+	if err != nil {
+		log.Println("error when trying to query database in GetOrdersForAccrual:", err)
+		return nil, err
+	}
 	fmt.Println("orders to ask accrual:", results)
 	return results, nil
 }
@@ -511,5 +517,6 @@ func (s *SQLdb) AddOperationInBulk(ords []orders.ProcessedOrder) error {
 			return err
 		}
 	}
+
 	return tx.Commit()
 }
