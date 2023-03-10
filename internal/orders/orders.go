@@ -12,15 +12,17 @@ type Order struct {
 	UploadedAt time.Time `json:"uploaded at"`
 }
 
-//type TehOrder struct {
-//	Username  string `json:"username"`
-//	Orderdata Order  `json:"orderdata"`
-//}
+type ProcessedOrder struct {
+	Number  string `json:"order"`
+	Status  string `json:"status"`
+	Accrual int    `json:"accrual"`
+}
 
 var (
 	ErrOrderLoadedThisUser    = errors.New("order has been already loaded by this user")
 	ErrOrderLoadedAnotherUser = errors.New("order has been already loaded by another user")
 	ErrWrongOrderNumberFormat = errors.New("order number is wrong - can't pass Luhn algorithm")
+	ErrNoOrders               = errors.New("orders not found for the user")
 )
 
 func LuhnCheck(ordernumber string) bool {

@@ -19,6 +19,7 @@ type SQLdb struct {
 }
 
 // SQL queries
+// database init queries
 var checkTableExistsQuery = `
 	SELECT EXISTS (
 		SELECT 	1 
@@ -57,12 +58,15 @@ var dropOrdersTableQuery = `
 	DROP TABLE orders CASCADE;
 `
 
+var dropOperationsTableQuery = `
+	DROP TABLE operations CASCADE;
+`
+
 var createOrdersTableQuery = `
 	CREATE TABLE orders (
 		number TEXT UNIQUE NOT NULL PRIMARY KEY,
 		user_id integer NOT NULL,
 		status text NOT NULL,
-		accrual INTEGER,
 		uploaded_at TIMESTAMP WITH TIME ZONE,
 		CONSTRAINT fk_ousers
 			FOREIGN KEY (user_id)
@@ -71,6 +75,21 @@ var createOrdersTableQuery = `
 	);
 `
 
+var createOperationsTableQuery = `
+	CREATE TABLE operations (
+		id SERIAL,
+		user_id integer NOT NULL,
+		accrual integer,
+		datetime TIMESTAMP WITH TIME ZONE,
+		PRIMARY KEY (id),
+		CONSTRAINT fk_opusers
+			FOREIGN KEY (user_id)
+				REFERENCES users(id)
+				ON DELETE CASCADE
+	);
+`
+
+// auth queries
 var checkUsernameQuery = `
 	SELECT id
 	FROM users 
@@ -93,6 +112,7 @@ var addNewUserQuery = `
 	VALUES ((SELECT id FROM new_user), $2);
 `
 
+// orders queries
 var checkOrderNumberQuery = `
 	WITH new_order AS (
 	SELECT orders (id)
@@ -131,6 +151,23 @@ var CheckIDbyUsernameQuery = `
 	WHERE username = $1;
 `
 
+// accrual worker queries
+var AccrualAddQuery = `
+	WITH new_operation AS (
+		UPDATE orders
+		SET status = $1
+		WHERE number = $2
+		RETURNING user_id
+	)
+	INSERT INTO operations (user_id, accrual, datetime)
+	VALUES ((SELECT user_id FROM new_operation), $3, TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SS"Z"TZH:TZM') );
+`
+var UpdateStatusQuery = `
+	UPDATE orders
+	SET status = $1
+	WHERE number = $2;
+`
+
 // типы ошибок
 var (
 	ErrTableDoesntExist = errors.New("table doesn't exist")
@@ -164,10 +201,11 @@ func (s *SQLdb) CheckConn(dbAddress string) error {
 	return nil
 }
 
-func (s *SQLdb) InitDatabase() {
+func (s *SQLdb) ClearDatabase() {
 	s.CheckNDropTables()
 	s.CreateUserTables()
 	s.CreateOrdersTable()
+	s.CreateOperationsTable()
 }
 
 func (s *SQLdb) CheckTableExists(tablename string) error {
@@ -235,6 +273,23 @@ func (s *SQLdb) CheckNDropTables() error {
 		return err
 	}
 
+	err = db.QueryRow(checkTableExistsQuery, "operations").Scan(&check)
+	if err != nil {
+		fmt.Printf("error checking if table exists: %v", err)
+		return err
+	}
+	if check {
+		_, err = db.Exec(dropOperationsTableQuery)
+		if err != nil {
+			fmt.Println("Error when dropping ops table:", err)
+			return err
+		}
+	}
+	if err != nil {
+		fmt.Printf("error dropping a table: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -260,18 +315,13 @@ func (s *SQLdb) CreateUserTables() error {
 	return nil
 }
 func (s *SQLdb) CreateOrdersTable() error {
-	db, err := sql.Open("postgres", s.address)
-	if err != nil {
-		fmt.Printf("error opening database: %v", err)
-		return err
-	}
-	defer db.Close()
+	_, err := s.db.Exec(createOrdersTableQuery)
+	return err
+}
 
-	_, err = db.Exec(createOrdersTableQuery)
-	if err != nil {
-		return err
-	}
-	return nil
+func (s *SQLdb) CreateOperationsTable() error {
+	_, err := s.db.Exec(createOperationsTableQuery)
+	return err
 }
 
 func (s *SQLdb) Register(login string, password string) error {
@@ -368,9 +418,9 @@ func (s *SQLdb) SetOrder(ordernumber string, username string) error {
 func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 	var ords []orders.Order
 	username := ctx.Value(config.UserID("userID"))
-	rows, err := s.db.Query(getOrdersByUserQuery, username)
+	rows, err := s.db.QueryContext(ctx, getOrdersByUserQuery, username)
 	if err != nil {
-		fmt.Println("error when getting orders:", err)
+		log.Println("error when getting orders:", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -379,6 +429,7 @@ func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 		var ord orders.Order
 		err = rows.Scan(&ord.Number, &ord.Status, &ord.Accrual, &ord.UploadedAt)
 		if err != nil {
+			log.Println("error when scanning rows in getting orders:", err)
 			return nil, err
 		}
 		ords = append(ords, ord)
@@ -388,5 +439,77 @@ func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(ords) == 0 {
+		return ords, orders.ErrNoOrders
+	}
 	return ords, nil
+}
+
+func (s *SQLdb) GetOrdersForAccrual() (results []string, err error) {
+	var getOrdersAccrualStatusUpdQuery = `
+		SELECT number
+		FROM orders
+		WHERE status='NEW' 
+			OR status='PROCESSING';
+	`
+	fmt.Println("PINGING ACCRUAL TO UPDATE ORDER STATUS!")
+
+	rows, err := s.db.Query(getOrdersAccrualStatusUpdQuery)
+	if err != nil {
+		log.Println("error while trying to get orders for accrual status update:", err)
+		return nil, err
+	}
+	var number string
+	for rows.Next() {
+		rows.Scan(&number)
+		results = append(results, number)
+	}
+	fmt.Println("orders to ask accrual:", results)
+	return results, nil
+}
+
+func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
+	accAddQ, _ := s.db.Prepare(UpdateStatusQuery)
+
+	// Шаг 1 - объявляем транзакцию
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	// Шаг 1.1 - откат, если ошибка
+	defer tx.Rollback()
+
+	// шаг 2
+	for _, o := range ords {
+		_, err := accAddQ.Exec(o.Status, o.Number)
+		if err != nil {
+			log.Println("error in executing AccrualAddQuery:", err)
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *SQLdb) AddOperationInBulk(ords []orders.ProcessedOrder) error {
+	accAddQ, _ := s.db.Prepare(AccrualAddQuery)
+
+	// Шаг 1 - объявляем транзакцию
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	// Шаг 1.1 - откат, если ошибка
+	defer tx.Rollback()
+
+	// шаг 2
+	for _, o := range ords {
+		_, err := accAddQ.Exec(o.Status, o.Number)
+		if err != nil {
+			log.Println("error in executing AccrualAddQuery:", err)
+			return err
+		}
+	}
+	return tx.Commit()
 }

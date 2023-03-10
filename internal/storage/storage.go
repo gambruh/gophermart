@@ -22,6 +22,8 @@ type Storage interface {
 	GetStorage() map[string]string
 	SetOrder(string, string) error
 	GetOrders(ctx context.Context) ([]orders.Order, error)
+	GetOrdersForAccrual() ([]string, error)
+	UpdateAccrual([]orders.ProcessedOrder) error
 }
 
 type MemStorage struct {
@@ -31,8 +33,8 @@ type MemStorage struct {
 	Mu     *sync.Mutex
 }
 
-func NewStorage() MemStorage {
-	return MemStorage{
+func NewStorage() *MemStorage {
+	return &MemStorage{
 		Data:   make(map[string]string),
 		Umap:   make(map[string]string),
 		Orders: make(map[string][]orders.Order),
@@ -74,12 +76,13 @@ func (s *MemStorage) SetOrder(ordernumber string, username string) error {
 			fmt.Println("return when parsing time in SetOrder handler")
 			return err
 		}
-		s.Orders[ordernumber] = append(s.Orders[ordernumber],
+		s.Orders[username] = append(s.Orders[username],
 			orders.Order{
 				Number:     ordernumber,
 				Status:     "NEW",
 				UploadedAt: t,
 			})
+		s.Umap[ordernumber] = username
 		return nil
 	case contains && uname == username:
 		fmt.Println("Order has been loaded by the user already:", username)
@@ -95,4 +98,21 @@ func (s *MemStorage) SetOrder(ordernumber string, username string) error {
 func (s *MemStorage) GetOrders(ctx context.Context) ([]orders.Order, error) {
 	username := ctx.Value(config.UserID("userID"))
 	return s.Orders[username.(string)], nil
+}
+
+func (s *MemStorage) GetOrdersForAccrual() ([]string, error) {
+	var preparr []string
+
+	for _, v := range s.Orders {
+		for _, o := range v {
+			if o.Status == "PROCESSING" || o.Status == "NEW" {
+				preparr = append(preparr, o.Number)
+			}
+		}
+	}
+	return preparr, nil
+}
+
+func (s *MemStorage) UpdateAccrual([]orders.ProcessedOrder) error {
+	return nil
 }

@@ -182,15 +182,17 @@ func (h *WebService) PostOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebService) GetOrders(w http.ResponseWriter, r *http.Request) {
-
-	orders, err := h.Storage.GetOrders(r.Context())
-	if err != nil {
+	ords, err := h.Storage.GetOrders(r.Context())
+	w.Header().Add("Content-type", "application/json")
+	switch err {
+	case nil:
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ords)
+	case orders.ErrNoOrders:
+		w.WriteHeader(http.StatusNoContent)
+	default:
 		log.Println("error in GetOrders handler:", err)
-		w.Header().Add("Content-type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.Header().Add("Content-type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(orders)
 }
