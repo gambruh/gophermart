@@ -49,7 +49,6 @@ func (a *Agent) askAccrual() ([]orders.ProcessedOrder, error) {
 		log.Println("error when trying to get orders from storage to ask accrual:", err)
 		return []orders.ProcessedOrder{}, err
 	}
-	var resArr []orders.ProcessedOrder
 
 	for _, j := range ordsArr {
 		res, err := a.makeGetRequest(j)
@@ -59,8 +58,8 @@ func (a *Agent) askAccrual() ([]orders.ProcessedOrder, error) {
 		}
 		results = append(results, res)
 	}
-	fmt.Println("returning resArr:", resArr)
-	return resArr, nil
+	fmt.Println("returning results array:", results)
+	return results, nil
 }
 
 func (a *Agent) worker(wg *sync.WaitGroup, jobs <-chan string, results chan<- orders.ProcessedOrder) {
@@ -90,7 +89,7 @@ func (a *Agent) makeGetRequest(ordernumber string) (orders.ProcessedOrder, error
 		fmt.Println("error 2 in makeGetRequest:", err)
 		return orders.ProcessedOrder{}, err
 	}
-	//defer res.Body.Close()
+	defer res.Body.Close()
 	log.Println("OK UP TO HERE")
 	err = json.NewDecoder(res.Body).Decode(&processed)
 	if err != nil {
