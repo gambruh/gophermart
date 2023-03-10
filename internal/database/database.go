@@ -126,13 +126,13 @@ var insertNewOrderQuery = `
 `
 
 var getOrdersQuery = `
-	SELECT orders.number, orders.status, orders.accrual, orders.uploaded_at, users.username
+	SELECT orders.number, orders.status, orders.uploaded_at, users.username
 	FROM orders
 	JOIN users ON orders.user_id = users.id;
 `
 
 var getOrdersByUserQuery = `
-	SELECT orders.number, orders.status, orders.accrual, orders.uploaded_at
+	SELECT orders.number, orders.status, orders.uploaded_at
 	FROM orders
 	JOIN users ON orders.user_id = users.id
 	WHERE users.username = $1;
