@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/gambruh/gophermart/internal/auth"
+	"github.com/gambruh/gophermart/internal/balance"
 	"github.com/gambruh/gophermart/internal/config"
 	"github.com/gambruh/gophermart/internal/database"
 	"github.com/gambruh/gophermart/internal/orders"
@@ -38,6 +39,9 @@ func (h *WebService) Service() http.Handler {
 		r.Use(auth.AuthMiddleware)
 		r.Post("/api/user/orders", h.PostOrder)
 		r.Get("/api/user/orders", h.GetOrders)
+		r.Get("/api/user/balance", h.GetBalance)
+		r.Post("/api/user/balance/withdraw", h.Withdraw)
+		r.Get("/api/user/withdrawals", h.GetWithdrawals)
 	})
 
 	return r
@@ -194,5 +198,59 @@ func (h *WebService) GetOrders(w http.ResponseWriter, r *http.Request) {
 		log.Println("error in GetOrders handler:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
+	}
+}
+
+func (h *WebService) GetBalance(w http.ResponseWriter, r *http.Request) {
+	bal, err := h.Storage.GetBalance(r.Context())
+	switch err {
+	case nil:
+		w.Header().Add("Content-type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(bal)
+		fmt.Println("balance is:", bal)
+	default:
+		log.Println("error in GetBalance handler:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *WebService) GetWithdrawals(w http.ResponseWriter, r *http.Request) {
+	withdrawals, err := h.Storage.GetWithdrawals(r.Context())
+	switch err {
+	case nil:
+		w.Header().Add("Content-type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(withdrawals)
+	case balance.ErrNoOperations:
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		log.Println("error in GetWithdrawals handler:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *WebService) Withdraw(w http.ResponseWriter, r *http.Request) {
+	var withdrawReq balance.WithdrawQ
+
+	err := json.NewDecoder(r.Body).Decode(&withdrawReq)
+	if err != nil {
+		log.Println("error in Withdraw handler:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+
+	err = h.Storage.Withdraw(r.Context(), withdrawReq)
+	switch err {
+	case nil:
+		w.WriteHeader(http.StatusOK)
+	case balance.ErrWrongOrder:
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	case balance.ErrInsufficientFunds:
+		w.WriteHeader(http.StatusPaymentRequired)
+	default:
+		log.Println("error in Withdraw handler when adding withdraw operation in storage:", err)
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }

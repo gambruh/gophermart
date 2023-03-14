@@ -3,9 +3,12 @@ package accrualworker
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gambruh/gophermart/internal/config"
@@ -14,6 +17,8 @@ import (
 )
 
 const workersmax = 1
+
+var ErrTooManyReqs = errors.New("too many requests")
 
 type SQLdb struct {
 	db      *sql.DB
@@ -36,7 +41,7 @@ type Agent struct {
 func NewAgent(st storage.Storage) *Agent {
 	return &Agent{
 		Client:  &http.Client{},
-		Server:  config.Cfg.Address,
+		Server:  config.Cfg.Accrual,
 		Storage: st,
 		Mu:      &sync.Mutex{},
 	}
@@ -50,11 +55,15 @@ func (a *Agent) askAccrual() ([]orders.ProcessedOrder, error) {
 		return []orders.ProcessedOrder{}, err
 	}
 
-	for _, j := range ordsArr {
-		res, err := a.makeGetRequest(j)
+	for i := 0; i < len(ordsArr); i++ {
+		res, err := a.makeGetRequest(ordsArr[i])
 		if err != nil {
-			log.Println("error when sending order to accrual:", err)
-			return []orders.ProcessedOrder{}, err
+			if err == ErrTooManyReqs {
+
+			} else {
+				log.Println("error when sending order to accrual:", err)
+				return nil, err
+			}
 		}
 		results = append(results, res)
 	}
@@ -76,7 +85,10 @@ func (a *Agent) worker(wg *sync.WaitGroup, jobs <-chan string, results chan<- or
 
 func (a *Agent) makeGetRequest(ordernumber string) (orders.ProcessedOrder, error) {
 	var processed orders.ProcessedOrder
-	url := fmt.Sprintf("http://%s/api/orders/%s", a.Server, ordernumber)
+	url := fmt.Sprintf("%s/api/orders/%s", a.Server, ordernumber)
+	if !strings.HasPrefix(url, "http://") {
+		url = "http://" + url
+	}
 	log.Println("url is:", url)
 	r, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -90,14 +102,30 @@ func (a *Agent) makeGetRequest(ordernumber string) (orders.ProcessedOrder, error
 		return orders.ProcessedOrder{}, err
 	}
 	defer res.Body.Close()
-	log.Println("OK UP TO HERE")
-	err = json.NewDecoder(res.Body).Decode(&processed)
-	if err != nil {
-		log.Println("error when decoding processed orders from accrual:", err)
-		return orders.ProcessedOrder{}, err
+	switch {
+	case res.StatusCode == 200:
+		log.Println("OK UP TO HERE")
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			log.Println("error in reading resbody in makeGetRequest:", err)
+			return orders.ProcessedOrder{}, err
+		}
+		defer res.Body.Close()
+		err = json.Unmarshal(body, &processed)
+		if err != nil {
+			log.Println("error when decoding processed orders from accrual:", err)
+			log.Println("body is:", string(body))
+			return orders.ProcessedOrder{Number: ordernumber, Status: "INVALID"}, nil
+		}
+		return processed, nil
+	case res.StatusCode == 204:
+		return orders.ProcessedOrder{Number: ordernumber, Status: "NEW"}, nil
+	case res.StatusCode == 429:
+		return orders.ProcessedOrder{Number: ordernumber}, ErrTooManyReqs
+	default:
+		log.Println("unexpected response from accrual api. StatusCode:", res.StatusCode)
+		return orders.ProcessedOrder{}, errors.New("unexpected response from accrual api")
 	}
-	log.Println("processed order:", processed)
-	return processed, nil
 }
 
 func (a *Agent) PingAccrual() error {
@@ -110,6 +138,11 @@ func (a *Agent) PingAccrual() error {
 		log.Println("error in updatedatabase func of accrualworker:", err)
 		return err
 	}
+	//err = a.Storage.AddAccrualOperation(input)
+	//if err != nil {
+	//	log.Println("error in updatedatabase func of accrualworker:", err)
+	//	return err
+	//}
 
 	return nil
 }

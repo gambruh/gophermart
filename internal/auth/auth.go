@@ -7,7 +7,10 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gambruh/gophermart/internal/config"
+	"github.com/gambruh/gophermart/internal/database"
 )
+
+type AuthDB database.SQLdb
 
 type LoginData struct {
 	Login    string `json:"login"`

@@ -8,14 +8,14 @@ import (
 type Order struct {
 	Number     string    `json:"number"`
 	Status     string    `json:"status"`
-	Accrual    *int      `json:"accrual,omitempty"`
+	Accrual    *float32  `json:"accrual,omitempty"`
 	UploadedAt time.Time `json:"uploaded at"`
 }
 
 type ProcessedOrder struct {
-	Number  string `json:"order"`
-	Status  string `json:"status"`
-	Accrual int    `json:"accrual"`
+	Number  string   `json:"order"`
+	Status  string   `json:"status"`
+	Accrual *float32 `json:"accrual,omitempty"`
 }
 
 var (
