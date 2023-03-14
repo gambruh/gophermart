@@ -486,7 +486,7 @@ func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
 		log.Println("error in preparing SQL query AccrualAdd:", err)
 		return err
 	}
-	statusChangeQ, _ := s.DB.Prepare(UpdateStatusQuery)
+	statusChangeQ, err := s.DB.Prepare(UpdateStatusQuery)
 	if err != nil {
 		log.Println("error in preparing SQL query UPDATESTATUS:", err)
 		return err
