@@ -503,6 +503,22 @@ func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
 
 	// шаг 2
 	for _, o := range ords {
+		// order status assertion
+		switch o.Status {
+		case "NEW":
+			o.Status = "NEW"
+		case "REGISTERED":
+			o.Status = "PROCESSING"
+		case "PROCESSING":
+			o.Status = "PROCESSING"
+		case "PROCESSED":
+			o.Status = "PROCESSED"
+		case "INVALID":
+			o.Status = "INVALID"
+		default:
+			log.Println("unexpected order status from accrual:", o.Status)
+			return errors.New("unexpected order status:")
+		}
 		if o.Accrual != nil {
 			formattedTime := time.Now().Format(time.RFC3339)
 			_, err := accAddQ.Exec(o.Status, o.Number, *o.Accrual, formattedTime)
@@ -522,7 +538,6 @@ func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
 	return tx.Commit()
 }
 
-// // СДЕЛАТЬ ЗАВТРА!!!! NEN
 func (s *SQLdb) AddAccrualOperation(ords []orders.ProcessedOrder) error {
 
 	balanceAddQ, _ := s.DB.Prepare(balance.InsertOperationQuery)

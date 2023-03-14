@@ -25,12 +25,6 @@ type SQLdb struct {
 	address string
 }
 
-var UpdateOrdersFromAccrualQuery = `
-		UPDATE orders
-		SET status = $1
-		WHERE number = $2;
-`
-
 type Agent struct {
 	Client  *http.Client
 	Server  string
@@ -102,6 +96,7 @@ func (a *Agent) makeGetRequest(ordernumber string) (orders.ProcessedOrder, error
 		return orders.ProcessedOrder{}, err
 	}
 	defer res.Body.Close()
+	//status code check
 	switch {
 	case res.StatusCode == 200:
 		log.Println("OK UP TO HERE")
@@ -138,11 +133,6 @@ func (a *Agent) PingAccrual() error {
 		log.Println("error in updatedatabase func of accrualworker:", err)
 		return err
 	}
-	//err = a.Storage.AddAccrualOperation(input)
-	//if err != nil {
-	//	log.Println("error in updatedatabase func of accrualworker:", err)
-	//	return err
-	//}
 
 	return nil
 }
