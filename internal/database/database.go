@@ -517,7 +517,7 @@ func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
 			o.Status = "INVALID"
 		default:
 			log.Println("unexpected order status from accrual:", o.Status)
-			return errors.New("unexpected order status:")
+			return errors.New("unexpected order status")
 		}
 		if o.Accrual != nil {
 			formattedTime := time.Now().Format(time.RFC3339)
