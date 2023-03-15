@@ -134,6 +134,11 @@ var getOrdersByUserQuery = `
 	WHERE users.username = $1;
 `
 
+var getOrderAccrualQuery = `
+	SELECT accrual 
+	FROM operations
+	WHERE number = $1`
+
 var getUsernameByNumberQuery = `
 	SELECT users.username
 	FROM orders
@@ -435,8 +440,15 @@ func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 		var ord orders.Order
 		err = rows.Scan(&ord.Number, &ord.Status, &ord.UploadedAt)
 		if err != nil {
-			log.Println("error when scanning rows in getting orders:", err)
+			log.Println("error when scanning rows in GetOrders:", err)
 			return nil, err
+		}
+		if ord.Status == "PROCESSED" {
+			err = s.DB.QueryRowContext(ctx, getOrderAccrualQuery, ord.Number).Scan(&ord.Accrual)
+			if err != nil {
+				log.Println("error when scanning orders accrual in GetOrders:", err)
+				return nil, err
+			}
 		}
 		ords = append(ords, ord)
 	}
@@ -580,7 +592,10 @@ func (s *SQLdb) GetBalance(ctx context.Context) (balance.Balance, error) {
 		log.Println("error when trying to connect to database in GetBalance method:", err)
 		return balance.Balance{}, err
 	}
-	b.Withdrawn *= -1
+	if b.Withdrawn != 0 {
+		b.Withdrawn *= -1
+	}
+
 	return b, nil
 }
 
