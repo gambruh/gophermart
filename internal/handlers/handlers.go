@@ -59,20 +59,20 @@ func (h *WebService) Register(w http.ResponseWriter, r *http.Request) {
 	var data auth.LoginData
 	err := json.NewDecoder(r.Body).Decode(&data)
 	if err != nil {
-		fmt.Printf("Wrong format of incoming json request: %v\n", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	if data.Login == "" {
-		fmt.Println("Empty login field")
+		w.Write([]byte("Empty login field"))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	if data.Password == "" {
-		fmt.Println("Empty password field")
+
 		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Empty password field"))
 		return
 	}
 

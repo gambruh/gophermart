@@ -7,10 +7,30 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gambruh/gophermart/internal/config"
-	"github.com/gambruh/gophermart/internal/database"
 )
 
-type AuthDB database.SQLdb
+// auth queries
+var CheckUsernameQuery = `
+	SELECT id
+	FROM users 
+	WHERE username = $1;
+`
+
+var CheckPasswordQuery = `
+	SELECT password
+	FROM passwords 
+	WHERE id = $1;
+`
+
+var AddNewUserQuery = `
+	WITH new_user AS (
+		INSERT INTO users (username)
+		VALUES ($1)
+		RETURNING id
+	)
+	INSERT INTO passwords (id, password)
+	VALUES ((SELECT id FROM new_user), $2);
+`
 
 type LoginData struct {
 	Login    string `json:"login"`

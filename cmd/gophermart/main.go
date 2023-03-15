@@ -36,7 +36,7 @@ func main() {
 	}
 
 	//ask accrual for processed orders
-	PingTime := time.NewTicker(900 * time.Millisecond)
+	PingTime := time.NewTicker(2 * time.Second)
 	defer PingTime.Stop()
 	go func() {
 		for {

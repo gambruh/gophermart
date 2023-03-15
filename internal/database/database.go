@@ -8,6 +8,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/gambruh/gophermart/cmd/argon2id"
+	"github.com/gambruh/gophermart/internal/auth"
 	"github.com/gambruh/gophermart/internal/balance"
 	"github.com/gambruh/gophermart/internal/config"
 	"github.com/gambruh/gophermart/internal/orders"
@@ -90,29 +92,6 @@ var createOperationsTableQuery = `
 				REFERENCES orders(number)
 				ON DELETE CASCADE
 	);
-`
-
-// auth queries
-var checkUsernameQuery = `
-	SELECT id
-	FROM users 
-	WHERE username = $1;
-`
-
-var checkPasswordQuery = `
-	SELECT password
-	FROM passwords 
-	WHERE id = $1;
-`
-
-var addNewUserQuery = `
-	WITH new_user AS (
-		INSERT INTO users (username)
-		VALUES ($1)
-		RETURNING id
-	)
-	INSERT INTO passwords (id, password)
-	VALUES ((SELECT id FROM new_user), $2);
 `
 
 // orders queries
@@ -341,10 +320,16 @@ func (s *SQLdb) CreateOperationsTable() error {
 
 func (s *SQLdb) Register(login string, password string) error {
 	var username string
-	e := s.DB.QueryRow(checkUsernameQuery, login).Scan(&username)
+	hashedpassword, err := argon2id.CreateHash(password, argon2id.DefaultParams)
+	if err != nil {
+		log.Println("error when trying to hash password:", err)
+		return err
+	}
+	e := s.DB.QueryRow(auth.CheckUsernameQuery, login).Scan(&username)
+
 	switch e {
 	case sql.ErrNoRows:
-		_, err := s.DB.Exec(addNewUserQuery, login, password)
+		_, err := s.DB.Exec(auth.AddNewUserQuery, login, hashedpassword)
 		return err
 	case nil:
 		err := ErrUsernameIsTaken
@@ -363,32 +348,38 @@ func (s *SQLdb) VerifyCredentials(login string, password string) error {
 
 	db, err := sql.Open("postgres", s.Address)
 	if err != nil {
-		fmt.Printf("error opening database: %v", err)
+		log.Println("error opening database:", err)
 		return err
 	}
 	defer db.Close()
 
-	err = s.DB.QueryRow(checkUsernameQuery, login).Scan(&id)
+	err = s.DB.QueryRow(auth.CheckUsernameQuery, login).Scan(&id)
 	switch err {
 	case sql.ErrNoRows:
 		return nil
 	case nil:
 	default:
-		fmt.Println("Unexpected case in checking user's credentials in database:", err)
+		log.Println("Unexpected case in checking user's credentials in database:", err)
 		return err
 	}
 
-	err = s.DB.QueryRow(checkPasswordQuery, id).Scan(&pass)
+	err = s.DB.QueryRow(auth.CheckPasswordQuery, id).Scan(&pass)
 	if err != nil {
-		fmt.Println("Unexpected case in checking user's password in database:", err)
+		log.Println("Unexpected case in checking user's password in database:", err)
 		return err
 	}
 
-	if pass != password {
-		return ErrWrongPassword
-	} else {
-		return nil
+	check, err := argon2id.ComparePasswordAndHash(password, pass)
+	if err != nil {
+		log.Println("error when trying to compare password and hash:", err)
+		return err
 	}
+
+	if !check {
+		return ErrWrongPassword
+	}
+
+	return nil
 }
 
 func (s *SQLdb) GetStorage() map[string]string {
