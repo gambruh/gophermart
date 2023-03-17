@@ -33,11 +33,20 @@ type Storage interface {
 }
 
 type MemStorage struct {
-	Data       map[string]string
-	Umap       map[string]string
-	Orders     map[string][]orders.Order
+	// loginpass pairs
+	Data map[string]string
+
+	// ordernumber - username key-value pair
+	Umap map[string]string
+
+	// map with key-value pair of username - slice of order.Orders
+	Orders map[string][]orders.Order
+
+	// map with username - slice of operations pairs
 	Operations map[string][]balance.Operation
-	Mu         *sync.Mutex
+
+	// to ensure possible concurrent usage
+	Mu *sync.Mutex
 }
 
 func NewStorage() *MemStorage {

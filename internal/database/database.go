@@ -22,6 +22,19 @@ type SQLdb struct {
 	Address string
 }
 
+type Storage interface {
+	Register(login string, password string) error
+	VerifyCredentials(login string, password string) error
+	SetOrder(string, string) error
+	GetOrders(ctx context.Context) ([]orders.Order, error)
+	GetOrdersForAccrual() ([]string, error)
+	UpdateAccrual([]orders.ProcessedOrder) error
+	AddAccrualOperation([]orders.ProcessedOrder) error
+	GetBalance(context.Context) (balance.Balance, error)
+	GetWithdrawals(context.Context) ([]balance.Operation, error)
+	Withdraw(context.Context, balance.WithdrawQ) error
+}
+
 // SQL queries
 // database init queries
 var checkTableExistsQuery = `
@@ -383,7 +396,7 @@ func (s *SQLdb) VerifyCredentials(login string, password string) error {
 }
 
 func (s *SQLdb) GetStorage() map[string]string {
-	//заглушка для применения интерфейса storage.Storage
+	//mock to implement interface storage.Storage
 	return make(map[string]string)
 }
 
