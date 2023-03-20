@@ -124,12 +124,10 @@ func (s *SQLdb) InitDatabase() error {
 	if err != nil {
 		return err
 	}
-
 	err = s.CreateOperationsTable()
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -197,6 +195,7 @@ func (s *SQLdb) CreateOrdersTable() error {
 	err := s.CheckTableExists("orders")
 	if err == ErrTableDoesntExist {
 		_, err := s.DB.Exec(createOrdersTableQuery)
+		log.Println(err)
 		return err
 	}
 	return nil
@@ -207,6 +206,7 @@ func (s *SQLdb) CreateOperationsTable() error {
 	err := s.CheckTableExists("operations")
 	if err == ErrTableDoesntExist {
 		_, err := s.DB.Exec(createOperationsTableQuery)
+		log.Println(err)
 		return err
 	}
 	return nil

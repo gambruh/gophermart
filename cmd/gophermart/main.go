@@ -13,8 +13,8 @@ import (
 func main() {
 	config.InitFlags()
 	config.SetConfig()
-	defstorage := database.GetDB()
 	authstorage := auth.GetAuthDB()
+	defstorage := database.GetDB()
 
 	service := handlers.NewService(defstorage, authstorage)
 	agent := accrualworker.NewAgent(defstorage)
