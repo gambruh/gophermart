@@ -6,12 +6,11 @@ import (
 	"testing"
 
 	"github.com/gambruh/gophermart/internal/config"
-	"github.com/gambruh/gophermart/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
 
 type TestService struct {
-	Storage storage.Storage
+	Storage AuthStorage
 }
 
 func (ts *TestService) Service() http.Handler {
@@ -28,7 +27,7 @@ func (ts *TestService) Service() http.Handler {
 func TestAuthMiddleware(t *testing.T) {
 	key := "abcd"
 	config.Cfg.Key = key
-	mockstorage := storage.MemStorage{
+	mockstorage := AuthMemStorage{
 		Data: make(map[string]string),
 	}
 	mockstorage.Data["user123"] = "secretpassword"

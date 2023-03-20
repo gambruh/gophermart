@@ -33,8 +33,6 @@ var (
 )
 
 func InitFlags() {
-	//flags. Default value of time.Duration is in ns, so to get 2s and 10s I had to multiply it
-
 	Flags.Address = flag.String("a", "127.0.0.1:8080", "server address in format host:port")
 	Flags.Database = flag.String("d", "", "postgres database uri")
 	Flags.Accrual = flag.String("r", "127.0.0.1:5557", "accrual system address in format host:port")
@@ -45,7 +43,6 @@ func InitFlags() {
 }
 
 func SetConfig() {
-	// getting environment variables to set server address and poll and report intervals
 	env.Parse(&Cfg)
 	if _, check := os.LookupEnv("RUN_ADDRESS"); !check {
 		Cfg.Address = *Flags.Address

@@ -10,179 +10,95 @@ import (
 
 	"github.com/gambruh/gophermart/cmd/argon2id"
 	"github.com/gambruh/gophermart/internal/auth"
-	"github.com/gambruh/gophermart/internal/balance"
 	"github.com/gambruh/gophermart/internal/config"
-	"github.com/gambruh/gophermart/internal/orders"
+	"github.com/gambruh/gophermart/internal/helpers"
 
 	_ "github.com/lib/pq"
 )
 
 type SQLdb struct {
-	DB      *sql.DB
-	Address string
+	DB *sql.DB
+}
+
+type Operation struct {
+	Order       string    `json:"order"`
+	Accrual     float32   `json:"sum"`
+	ProcessedAt time.Time `json:"processed_at"`
+}
+
+type Balance struct {
+	Current   float32 `json:"current"`
+	Withdrawn float32 `json:"withdrawn"`
+}
+
+type WithdrawQ struct {
+	Order string  `json:"order"`
+	Sum   float32 `json:"sum"`
+}
+
+type Order struct {
+	Number     string    `json:"number"`
+	Status     string    `json:"status"`
+	Accrual    *float32  `json:"accrual,omitempty"`
+	UploadedAt time.Time `json:"uploaded at"`
+}
+
+type ProcessedOrder struct {
+	Number  string   `json:"order"`
+	Status  string   `json:"status"`
+	Accrual *float32 `json:"accrual,omitempty"`
 }
 
 type Storage interface {
 	Register(login string, password string) error
 	VerifyCredentials(login string, password string) error
 	SetOrder(string, string) error
-	GetOrders(ctx context.Context) ([]orders.Order, error)
+	GetOrders(ctx context.Context) ([]Order, error)
 	GetOrdersForAccrual() ([]string, error)
-	UpdateAccrual([]orders.ProcessedOrder) error
-	AddAccrualOperation([]orders.ProcessedOrder) error
-	GetBalance(context.Context) (balance.Balance, error)
-	GetWithdrawals(context.Context) ([]balance.Operation, error)
-	Withdraw(context.Context, balance.WithdrawQ) error
+	GetPass(username string) (string, error)
+	UpdateAccrual([]ProcessedOrder) error
+	AddAccrualOperation([]ProcessedOrder) error
+	GetBalance(context.Context) (Balance, error)
+	GetWithdrawals(context.Context) ([]Operation, error)
+	Withdraw(context.Context, WithdrawQ) error
 }
-
-// SQL queries
-// database init queries
-var checkTableExistsQuery = `
-	SELECT EXISTS (
-		SELECT 	1 
-		FROM 	information_schema.tables
-		WHERE 	table_name = $1
-	);
-`
-
-var createUsersTableQuery = `
-	CREATE TABLE users (
-		id SERIAL,
-		username text NOT NULL UNIQUE,
-		PRIMARY KEY (id)
-	);
-`
-
-var createPasswordsTableQuery = `
-	CREATE TABLE passwords (
-		id integer PRIMARY KEY,
-		password TEXT NOT NULL,
-		CONSTRAINT fk_users
-			FOREIGN KEY (id) 
-				REFERENCES users(id)
-				ON DELETE CASCADE
-	);
-`
-
-var dropPasswordsTableQuery = `
-	DROP TABLE passwords CASCADE;
-`
-
-var dropUsersTableQuery = `
-	DROP TABLE users CASCADE;
-`
-var dropOrdersTableQuery = `
-	DROP TABLE orders CASCADE;
-`
-
-var dropOperationsTableQuery = `
-	DROP TABLE operations CASCADE;
-`
-
-var createOrdersTableQuery = `
-	CREATE TABLE orders (
-		number TEXT UNIQUE NOT NULL PRIMARY KEY,
-		user_id integer NOT NULL,
-		status text NOT NULL,
-		uploaded_at TIMESTAMP WITH TIME ZONE,
-		CONSTRAINT fk_ousers
-			FOREIGN KEY (user_id)
-				REFERENCES users(id)
-				ON DELETE CASCADE
-	);
-`
-
-var createOperationsTableQuery = `
-	CREATE TABLE operations (
-		id SERIAL,
-		user_id integer NOT NULL,
-		number TEXT NOT NULL,
-		accrual double precision,
-		processed_at TIMESTAMP WITH TIME ZONE,
-		PRIMARY KEY (id),
-		CONSTRAINT fk_oorders
-			FOREIGN KEY (number)
-				REFERENCES orders(number)
-				ON DELETE CASCADE
-	);
-`
-
-// orders queries
-var insertNewOrderQuery = `
-	INSERT INTO orders(number, user_id, status, uploaded_at) 
-	VALUES ($1,$2,$3,TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SS"Z"TZH:TZM'));
-`
-
-var getOrdersQuery = `
-	SELECT orders.number, orders.status, orders.uploaded_at, users.username
-	FROM orders
-	JOIN users ON orders.user_id = users.id;
-`
-
-var getOrdersByUserQuery = `
-	SELECT orders.number, orders.status, orders.uploaded_at
-	FROM orders
-	JOIN users ON orders.user_id = users.id
-	WHERE users.username = $1;
-`
-
-var getOrderAccrualQuery = `
-	SELECT accrual 
-	FROM operations
-	WHERE number = $1`
-
-var getUsernameByNumberQuery = `
-	SELECT users.username
-	FROM orders
-	JOIN users ON orders.user_id = users.id
-	WHERE orders.number = $1;
-`
-
-var CheckIDbyUsernameQuery = `
-	SELECT id 
-	FROM users 
-	WHERE username = $1;
-`
-
-// accrual worker queries
-
-var AccrualAddQuery = `
-	WITH new_order AS (
-		UPDATE orders
-		SET status = $1
-		WHERE number = $2
-		RETURNING user_id
-	)
-	INSERT INTO operations (user_id, number, accrual, processed_at)
-	VALUES ((SELECT user_id FROM new_order),
-		$2, 
-		$3, 
-		TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SS"Z"TZH:TZM') 
-	);
-`
-var UpdateStatusQuery = `
-	UPDATE orders
-	SET status = $1
-	WHERE number = $2;
-`
 
 // типы ошибок
 var (
-	ErrTableDoesntExist = errors.New("table doesn't exist")
-	ErrUsernameIsTaken  = errors.New("username is taken")
-	ErrWrongPassword    = errors.New("wrong password")
+	ErrUserNotFound           = errors.New("user not found in database")
+	ErrTableDoesntExist       = errors.New("table doesn't exist")
+	ErrUsernameIsTaken        = errors.New("username is taken")
+	ErrWrongPassword          = errors.New("wrong password")
+	ErrWrongCredentials       = errors.New("wrong login credentials")
+	ErrNoOperations           = errors.New("no records found")
+	ErrInsufficientFunds      = errors.New("not enough accrual to withdraw")
+	ErrWrongOrder             = errors.New("wrong order")
+	ErrOrderLoadedThisUser    = errors.New("order has been already loaded by this user")
+	ErrOrderLoadedAnotherUser = errors.New("order has been already loaded by another user")
+	ErrWrongOrderNumberFormat = errors.New("order number is wrong - can't pass Luhn algorithm")
+	ErrNoOrders               = errors.New("orders not found for the user")
 )
 
 func NewSQLdb(postgresStr string) *SQLdb {
 	DB, _ := sql.Open("postgres", postgresStr)
 	return &SQLdb{
-		DB:      DB,
-		Address: postgresStr,
+		DB: DB,
 	}
 }
 
+func GetDB() (defstorage Storage) {
+	if config.Cfg.Storage {
+		defstorage = NewStorage()
+	} else {
+		db := NewSQLdb(config.Cfg.Database)
+		db.InitDatabase()
+		defstorage = db
+	}
+	return defstorage
+}
+
 func (s *SQLdb) CheckConn(dbAddress string) error {
-	db, err := sql.Open("postgres", s.Address)
+	db, err := sql.Open("postgres", config.Cfg.Database)
 	if err != nil {
 		fmt.Printf("error while opening DB:%v\n", err)
 		return err
@@ -199,17 +115,25 @@ func (s *SQLdb) CheckConn(dbAddress string) error {
 	return nil
 }
 
-func (s *SQLdb) InitDatabase() {
-	s.CheckNDropTables()
-	s.CreateUsersTable()
-	s.CreatePasswordsTable()
-	s.CreateOrdersTable()
-	s.CreateOperationsTable()
+func (s *SQLdb) InitDatabase() error {
+	err := s.CheckNDropTables()
+	if err != nil {
+		return err
+	}
+	err = s.CreateOrdersTable()
+	if err != nil {
+		return err
+	}
+	err = s.CreateOperationsTable()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SQLdb) CheckTableExists(tablename string) error {
 	var check bool
-	db, err := sql.Open("postgres", s.Address)
+	db, err := sql.Open("postgres", config.Cfg.Database)
 	if err != nil {
 		fmt.Printf("error opening database: %v", err)
 		return err
@@ -228,41 +152,16 @@ func (s *SQLdb) CheckTableExists(tablename string) error {
 }
 
 func (s *SQLdb) CheckNDropTables() error {
-	db, err := sql.Open("postgres", s.Address)
-	if err != nil {
-		fmt.Printf("error opening database: %v", err)
-		return err
-	}
-	defer db.Close()
 
 	var check bool
 
-	err = db.QueryRow(checkTableExistsQuery, "users").Scan(&check)
+	err := s.DB.QueryRow(checkTableExistsQuery, "orders").Scan(&check)
 	if err != nil {
 		fmt.Printf("error checking if table exists: %v", err)
 		return err
 	}
 	if check {
-		_, err = db.Exec(dropPasswordsTableQuery)
-		if err != nil {
-			return err
-		}
-		_, err = db.Exec(dropUsersTableQuery)
-		if err != nil {
-			return err
-		}
-	}
-	if err != nil {
-		fmt.Printf("error dropping a table: %v", err)
-		return err
-	}
-	err = db.QueryRow(checkTableExistsQuery, "orders").Scan(&check)
-	if err != nil {
-		fmt.Printf("error checking if table exists: %v", err)
-		return err
-	}
-	if check {
-		_, err = db.Exec(dropOrdersTableQuery)
+		_, err = s.DB.Exec(dropOrdersTableQuery)
 		if err != nil {
 			return err
 		}
@@ -272,13 +171,13 @@ func (s *SQLdb) CheckNDropTables() error {
 		return err
 	}
 
-	err = db.QueryRow(checkTableExistsQuery, "operations").Scan(&check)
+	err = s.DB.QueryRow(checkTableExistsQuery, "operations").Scan(&check)
 	if err != nil {
 		fmt.Printf("error checking if table exists: %v", err)
 		return err
 	}
 	if check {
-		_, err = db.Exec(dropOperationsTableQuery)
+		_, err = s.DB.Exec(dropOperationsTableQuery)
 		if err != nil {
 			fmt.Println("Error when dropping ops table:", err)
 			return err
@@ -292,26 +191,6 @@ func (s *SQLdb) CheckNDropTables() error {
 	return nil
 }
 
-func (s *SQLdb) CreateUsersTable() error {
-	err := s.CheckTableExists("users")
-	if err == ErrTableDoesntExist {
-		_, err := s.DB.Exec(createUsersTableQuery)
-		if err != nil {
-			return err
-		}
-	}
-	return err
-}
-func (s *SQLdb) CreatePasswordsTable() error {
-	err := s.CheckTableExists("passwords")
-	if err == ErrTableDoesntExist {
-		_, err = s.DB.Exec(createPasswordsTableQuery)
-		if err != nil {
-			return err
-		}
-	}
-	return err
-}
 func (s *SQLdb) CreateOrdersTable() error {
 	err := s.CheckTableExists("orders")
 	if err == ErrTableDoesntExist {
@@ -359,14 +238,7 @@ func (s *SQLdb) VerifyCredentials(login string, password string) error {
 		pass string
 	)
 
-	db, err := sql.Open("postgres", s.Address)
-	if err != nil {
-		log.Println("error opening database:", err)
-		return err
-	}
-	defer db.Close()
-
-	err = s.DB.QueryRow(auth.CheckUsernameQuery, login).Scan(&id)
+	err := s.DB.QueryRow(auth.CheckUsernameQuery, login).Scan(&id)
 	switch err {
 	case sql.ErrNoRows:
 		return nil
@@ -395,13 +267,7 @@ func (s *SQLdb) VerifyCredentials(login string, password string) error {
 	return nil
 }
 
-func (s *SQLdb) GetStorage() map[string]string {
-	//mock to implement interface storage.Storage
-	return make(map[string]string)
-}
-
-//orders
-
+// orders
 func (s *SQLdb) SetOrder(ordernumber string, username string) error {
 	var userq string
 	var id string
@@ -421,17 +287,17 @@ func (s *SQLdb) SetOrder(ordernumber string, username string) error {
 		}
 		return nil
 	case userq == username:
-		return orders.ErrOrderLoadedThisUser
+		return ErrOrderLoadedThisUser
 	case userq != username:
-		return orders.ErrOrderLoadedAnotherUser
+		return ErrOrderLoadedAnotherUser
 	default:
 		log.Println("Unexpected error in SetOrder method:", err)
 		return err
 	}
 }
 
-func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
-	var ords []orders.Order
+func (s *SQLdb) GetOrders(ctx context.Context) ([]Order, error) {
+	var ords []Order
 	username := ctx.Value(config.UserID("userID"))
 	rows, err := s.DB.QueryContext(ctx, getOrdersByUserQuery, username)
 	if err != nil {
@@ -441,7 +307,7 @@ func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var ord orders.Order
+		var ord Order
 		err = rows.Scan(&ord.Number, &ord.Status, &ord.UploadedAt)
 		if err != nil {
 			log.Println("error when scanning rows in GetOrders:", err)
@@ -456,26 +322,17 @@ func (s *SQLdb) GetOrders(ctx context.Context) ([]orders.Order, error) {
 		}
 		ords = append(ords, ord)
 	}
-	// проверяем на ошибки
 	err = rows.Err()
 	if err != nil {
 		return nil, err
 	}
 	if len(ords) == 0 {
-		return ords, orders.ErrNoOrders
+		return ords, ErrNoOrders
 	}
 	return ords, nil
 }
 
 func (s *SQLdb) GetOrdersForAccrual() (results []string, err error) {
-	var getOrdersAccrualStatusUpdQuery = `
-		SELECT number
-		FROM orders
-		WHERE status='NEW' 
-			OR status='PROCESSING';
-	`
-	fmt.Println("PINGING ACCRUAL TO UPDATE ORDER STATUS!")
-
 	rows, err := s.DB.Query(getOrdersAccrualStatusUpdQuery)
 	if err != nil {
 		log.Println("error while trying to get orders for accrual status update:", err)
@@ -492,11 +349,10 @@ func (s *SQLdb) GetOrdersForAccrual() (results []string, err error) {
 		log.Println("error when trying to query database in GetOrdersForAccrual:", err)
 		return nil, err
 	}
-	fmt.Println("orders to ask accrual:", results)
 	return results, nil
 }
 
-func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
+func (s *SQLdb) UpdateAccrual(ords []ProcessedOrder) error {
 	accAddQ, err := s.DB.Prepare(AccrualAddQuery)
 	if err != nil {
 		log.Println("error in preparing SQL query AccrualAdd:", err)
@@ -554,9 +410,8 @@ func (s *SQLdb) UpdateAccrual(ords []orders.ProcessedOrder) error {
 	return tx.Commit()
 }
 
-func (s *SQLdb) AddAccrualOperation(ords []orders.ProcessedOrder) error {
-
-	balanceAddQ, _ := s.DB.Prepare(balance.InsertOperationQuery)
+func (s *SQLdb) AddAccrualOperation(ords []ProcessedOrder) error {
+	balanceAddQ, _ := s.DB.Prepare(InsertOperationQuery)
 	// Шаг 1 - объявляем транзакцию
 	tx, err := s.DB.Begin()
 	if err != nil {
@@ -583,18 +438,18 @@ func (s *SQLdb) AddAccrualOperation(ords []orders.ProcessedOrder) error {
 	return tx.Commit()
 }
 
-func (s *SQLdb) GetBalance(ctx context.Context) (balance.Balance, error) {
-	var b balance.Balance
+func (s *SQLdb) GetBalance(ctx context.Context) (Balance, error) {
+	var b Balance
 	username := ctx.Value(config.UserID("userID"))
-	err := s.DB.QueryRowContext(ctx, balance.GetBalanceQuery, username).Scan(&b.Current)
+	err := s.DB.QueryRowContext(ctx, GetBalanceQuery, username).Scan(&b.Current)
 	if err != nil {
-		return balance.Balance{}, err
+		return Balance{}, err
 	}
 
-	err = s.DB.QueryRowContext(ctx, balance.GetWithdrawnQuery, username).Scan(&b.Withdrawn)
+	err = s.DB.QueryRowContext(ctx, GetWithdrawnQuery, username).Scan(&b.Withdrawn)
 	if err != nil {
 		log.Println("error when trying to connect to database in GetBalance method:", err)
-		return balance.Balance{}, err
+		return Balance{}, err
 	}
 	if b.Withdrawn != 0 {
 		b.Withdrawn *= -1
@@ -603,16 +458,16 @@ func (s *SQLdb) GetBalance(ctx context.Context) (balance.Balance, error) {
 	return b, nil
 }
 
-func (s *SQLdb) GetWithdrawals(ctx context.Context) ([]balance.Operation, error) {
-	var ops []balance.Operation
+func (s *SQLdb) GetWithdrawals(ctx context.Context) ([]Operation, error) {
+	var ops []Operation
 	username := ctx.Value(config.UserID("userID"))
-	rows, err := s.DB.QueryContext(ctx, balance.GetWithdrawalsQuery, username)
+	rows, err := s.DB.QueryContext(ctx, GetWithdrawalsQuery, username)
 	if err != nil {
 		return nil, err
 	}
 
 	for rows.Next() {
-		var op balance.Operation
+		var op Operation
 		err = rows.Scan(&op.Order, &op.Accrual, &op.ProcessedAt)
 		if err != nil {
 			log.Println("error when scanning rows in getting orders:", err)
@@ -628,23 +483,34 @@ func (s *SQLdb) GetWithdrawals(ctx context.Context) ([]balance.Operation, error)
 	return ops, nil
 }
 
-func (s *SQLdb) Withdraw(ctx context.Context, withdrawq balance.WithdrawQ) error {
+func (s *SQLdb) Withdraw(ctx context.Context, withdrawq WithdrawQ) error {
 	username := ctx.Value(config.UserID("userID"))
 	currentbalance, err := s.GetBalance(ctx)
 	if err != nil {
 		return err
 	}
-	pass := orders.LuhnCheck(withdrawq.Order)
+	pass := helpers.LuhnCheck(withdrawq.Order)
 	if !pass {
-		return balance.ErrWrongOrder
+		return ErrWrongOrder
 	}
 
 	if currentbalance.Current < withdrawq.Sum {
-		return balance.ErrInsufficientFunds
+		return ErrInsufficientFunds
 	}
 	t := time.Now()
 	formattedtime := t.Format(time.RFC3339)
 
-	_, err = s.DB.ExecContext(ctx, balance.InsertWithdrawOperation, username, withdrawq.Order, withdrawq.Sum*(-1), formattedtime)
+	_, err = s.DB.ExecContext(ctx, InsertWithdrawOperation, username, withdrawq.Order, withdrawq.Sum*(-1), formattedtime)
 	return err
+}
+
+func (s *SQLdb) GetPass(username string) (string, error) {
+	var password string
+
+	err := s.DB.QueryRow(getPassQuery, username).Scan(&password)
+	if err != nil {
+		return "", err
+	}
+
+	return password, nil
 }

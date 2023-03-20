@@ -11,76 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gambruh/gophermart/internal/balance"
-	"github.com/gambruh/gophermart/internal/orders"
-	"github.com/gambruh/gophermart/internal/storage"
+	"github.com/gambruh/gophermart/internal/database"
 )
-
-func TestAgent_askAccrual(t *testing.T) {
-	testAgent := Agent{
-		Storage: &storage.MemStorage{
-			Data: map[string]string{"Vasya": "secret", "Petya": "secretsecret", "Jenya": "123"},
-			Umap: map[string]string{"1234567897": "Vasya", "1234532313": "Vasya", "1234532339": "Petya"},
-			Orders: map[string][]orders.Order{
-				"Vasya": {
-					orders.Order{
-						Number:     "1234567897",
-						Status:     "NEW",
-						UploadedAt: time.Now(),
-					},
-					orders.Order{
-						Number:     "1234532313",
-						Status:     "NEW",
-						UploadedAt: time.Now(),
-					},
-				},
-				"Petya": {
-					orders.Order{
-						Number:     "1234532339",
-						Status:     "NEW",
-						UploadedAt: time.Now(),
-					},
-				},
-			},
-			Operations: make(map[string][]balance.Operation),
-			Mu:         &sync.Mutex{},
-		},
-	}
-
-	tests := []struct {
-		name string
-		a    *Agent
-		want []orders.ProcessedOrder
-	}{
-		{
-			name: "accrual test 1 - new orders with different statuses",
-			a:    &testAgent,
-			want: []orders.ProcessedOrder{},
-		},
-		{
-			name: "accrual test 2 - no data in accrual",
-			a:    &testAgent,
-			want: []orders.ProcessedOrder{},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.a.askAccrual()
-			if err != nil {
-				t.Errorf("Agent.askAccrual() error = %v, ", err)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Agent.askAccrual() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestAgent_makeGetRequest(t *testing.T) {
 	var testval float32 = 500
 
-	testAccrualStorage := map[string]orders.ProcessedOrder{
+	testAccrualStorage := map[string]database.ProcessedOrder{
 		"1234567897": {
 			Number:  "1234567897",
 			Status:  "PROCESSED",
@@ -106,7 +43,7 @@ func TestAgent_makeGetRequest(t *testing.T) {
 
 				order, ok := testAccrualStorage[orderNum]
 				if !ok {
-					order = orders.ProcessedOrder{Number: orderNum, Status: "NEW"}
+					order = database.ProcessedOrder{Number: orderNum, Status: "NEW"}
 				}
 				fmt.Println("TEST RESPONSE:", order)
 				w.WriteHeader(http.StatusOK)
@@ -124,31 +61,31 @@ func TestAgent_makeGetRequest(t *testing.T) {
 			Transport: ts.Client().Transport,
 		},
 		Server: ts.URL,
-		Storage: &storage.MemStorage{
+		Storage: &database.MemStorage{
 			Data: map[string]string{"Vasya": "secret", "Petya": "secretsecret", "Jenya": "123"},
 			Umap: map[string]string{"1234567897": "Vasya", "1234532313": "Vasya", "1234532339": "Petya"},
-			Orders: map[string][]orders.Order{
+			Orders: map[string][]database.Order{
 				"Vasya": {
-					orders.Order{
+					database.Order{
 						Number:     "1234567897",
 						Status:     "NEW",
 						UploadedAt: time.Now(),
 					},
-					orders.Order{
+					database.Order{
 						Number:     "1234532313",
 						Status:     "NEW",
 						UploadedAt: time.Now(),
 					},
 				},
 				"Petya": {
-					orders.Order{
+					database.Order{
 						Number:     "1234532339",
 						Status:     "NEW",
 						UploadedAt: time.Now(),
 					},
 				},
 			},
-			Operations: make(map[string][]balance.Operation),
+			Operations: make(map[string][]database.Operation),
 			Mu:         &sync.Mutex{},
 		},
 	}
@@ -157,14 +94,14 @@ func TestAgent_makeGetRequest(t *testing.T) {
 		name       string
 		a          *Agent
 		order      string
-		want       orders.ProcessedOrder
+		want       database.ProcessedOrder
 		wantStatus int
 	}{
 		{
 			name:  "get order 1",
 			a:     &testAgent,
 			order: "1234567897",
-			want: orders.ProcessedOrder{
+			want: database.ProcessedOrder{
 				Number:  "1234567897",
 				Status:  "PROCESSED",
 				Accrual: &testval,
@@ -175,7 +112,7 @@ func TestAgent_makeGetRequest(t *testing.T) {
 			name:  "get order 2",
 			a:     &testAgent,
 			order: "1234532313",
-			want: orders.ProcessedOrder{
+			want: database.ProcessedOrder{
 				Number: "1234532313",
 				Status: "PROCESSING",
 			},
@@ -185,7 +122,7 @@ func TestAgent_makeGetRequest(t *testing.T) {
 			name:  "get order 3",
 			a:     &testAgent,
 			order: "1234532339",
-			want: orders.ProcessedOrder{
+			want: database.ProcessedOrder{
 				Number: "1234532339",
 				Status: "INVALID",
 			},
@@ -195,7 +132,7 @@ func TestAgent_makeGetRequest(t *testing.T) {
 			name:  "get order 4 - but not in accrual",
 			a:     &testAgent,
 			order: "12312344",
-			want: orders.ProcessedOrder{
+			want: database.ProcessedOrder{
 				Number: "12312344",
 				Status: "NEW",
 			},

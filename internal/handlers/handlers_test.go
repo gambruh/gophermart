@@ -10,7 +10,7 @@ import (
 
 	"github.com/gambruh/gophermart/internal/auth"
 	"github.com/gambruh/gophermart/internal/config"
-	"github.com/gambruh/gophermart/internal/storage"
+	"github.com/gambruh/gophermart/internal/database"
 )
 
 func TestWebService_Register(t *testing.T) {
@@ -23,8 +23,9 @@ func TestWebService_Register(t *testing.T) {
 		{
 			name: "test 1 write login data to storage",
 			h: &WebService{
-				Storage: &storage.MemStorage{Data: make(map[string]string)},
-				Mu:      &sync.Mutex{},
+				Storage:     &database.MemStorage{Data: make(map[string]string)},
+				AuthStorage: &auth.AuthMemStorage{Data: make(map[string]string)},
+				Mu:          &sync.Mutex{},
 			},
 			loginData: auth.LoginData{
 				Login:    "user123",
@@ -35,7 +36,7 @@ func TestWebService_Register(t *testing.T) {
 		{
 			name: "test 2 empty password",
 			h: &WebService{
-				Storage: &storage.MemStorage{Data: make(map[string]string)},
+				Storage: &database.MemStorage{Data: make(map[string]string)},
 				Mu:      &sync.Mutex{},
 			},
 			loginData: auth.LoginData{
@@ -47,8 +48,9 @@ func TestWebService_Register(t *testing.T) {
 		{
 			name: "test 3 username already exists",
 			h: &WebService{
-				Storage: &storage.MemStorage{Data: map[string]string{"user123": "secretpass"}},
-				Mu:      &sync.Mutex{},
+				Storage:     &database.MemStorage{Data: map[string]string{"user123": "secretpass"}},
+				AuthStorage: &auth.AuthMemStorage{Data: map[string]string{"user123": "secretpass"}},
+				Mu:          &sync.Mutex{},
 			},
 			loginData: auth.LoginData{
 				Login:    "user123",
@@ -78,8 +80,12 @@ func TestWebService_Register(t *testing.T) {
 				t.Errorf("expected status %d, got %d", tt.want, rr.Code)
 			}
 			if tt.want == http.StatusOK {
-				if _, contains := tt.h.Storage.GetStorage()[tt.loginData.Login]; !contains {
-					t.Errorf("not found user %s in the storage", tt.loginData.Login)
+				pass, err := tt.h.AuthStorage.GetPass(tt.loginData.Login)
+				if err != nil {
+					t.Errorf("user not found in test storage: %v", err)
+				}
+				if pass != tt.loginData.Password {
+					t.Errorf("wrong password")
 				}
 			}
 		})
@@ -89,16 +95,19 @@ func TestWebService_Register(t *testing.T) {
 func TestWebService_Login(t *testing.T) {
 	key := "abcd"
 	config.Cfg.Key = key
-	mockstorage := &storage.MemStorage{
+	mockAuthstorage := &auth.AuthMemStorage{
 		Data: make(map[string]string),
-		Mu:   &sync.Mutex{},
+	}
+	mockstorage := &database.MemStorage{
+		Data: make(map[string]string),
 	}
 
-	mockstorage.Data["user123"] = "secretpass"
+	mockAuthstorage.Data["user123"] = "secretpass"
 
 	var mockservice = &(WebService{
-		Storage: mockstorage,
-		Mu:      &sync.Mutex{},
+		Storage:     mockstorage,
+		AuthStorage: mockAuthstorage,
+		Mu:          &sync.Mutex{},
 	})
 
 	token123, err := auth.GenerateToken("user123")

@@ -1,4 +1,4 @@
-package storage
+package database
 
 import (
 	"context"
@@ -8,29 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gambruh/gophermart/internal/balance"
 	"github.com/gambruh/gophermart/internal/config"
-	"github.com/gambruh/gophermart/internal/orders"
 )
 
-var (
-	ErrUsernameIsTaken  = errors.New("username is taken")
-	ErrWrongCredentials = errors.New("wrong login/password")
-)
-
-type Storage interface {
-	Register(login string, password string) error
-	VerifyCredentials(login string, password string) error
-	GetStorage() map[string]string
-	SetOrder(string, string) error
-	GetOrders(ctx context.Context) ([]orders.Order, error)
-	GetOrdersForAccrual() ([]string, error)
-	UpdateAccrual([]orders.ProcessedOrder) error
-	AddAccrualOperation([]orders.ProcessedOrder) error
-	GetBalance(context.Context) (balance.Balance, error)
-	GetWithdrawals(context.Context) ([]balance.Operation, error)
-	Withdraw(context.Context, balance.WithdrawQ) error
-}
+var ()
 
 type MemStorage struct {
 	// loginpass pairs
@@ -40,10 +21,10 @@ type MemStorage struct {
 	Umap map[string]string
 
 	// map with key-value pair of username - slice of order.Orders
-	Orders map[string][]orders.Order
+	Orders map[string][]Order
 
 	// map with username - slice of operations pairs
-	Operations map[string][]balance.Operation
+	Operations map[string][]Operation
 
 	// to ensure possible concurrent usage
 	Mu *sync.Mutex
@@ -53,8 +34,8 @@ func NewStorage() *MemStorage {
 	return &MemStorage{
 		Data:       make(map[string]string),
 		Umap:       make(map[string]string),
-		Orders:     make(map[string][]orders.Order),
-		Operations: make(map[string][]balance.Operation),
+		Orders:     make(map[string][]Order),
+		Operations: make(map[string][]Operation),
 		Mu:         &sync.Mutex{},
 	}
 }
@@ -62,6 +43,16 @@ func NewStorage() *MemStorage {
 func (s *MemStorage) GetStorage() map[string]string {
 	return s.Data
 }
+
+func (s *MemStorage) GetPass(username string) (string, error) {
+	password, contains := s.Data[username]
+	if !contains {
+		return "", ErrUserNotFound
+	}
+
+	return password, nil
+}
+
 func (s *MemStorage) Register(login string, password string) error {
 	_, contains := s.Data[login]
 	if contains {
@@ -77,7 +68,7 @@ func (s MemStorage) VerifyCredentials(login string, password string) error {
 	if contains && check == password {
 		return nil
 	} else {
-		return ErrWrongCredentials
+		return ErrWrongPassword
 	}
 }
 
@@ -94,7 +85,7 @@ func (s *MemStorage) SetOrder(ordernumber string, username string) error {
 			return err
 		}
 		s.Orders[username] = append(s.Orders[username],
-			orders.Order{
+			Order{
 				Number:     ordernumber,
 				Status:     "NEW",
 				UploadedAt: t,
@@ -103,16 +94,16 @@ func (s *MemStorage) SetOrder(ordernumber string, username string) error {
 		return nil
 	case contains && uname == username:
 		fmt.Println("Order has been loaded by the user already:", username)
-		return orders.ErrOrderLoadedThisUser
+		return ErrOrderLoadedThisUser
 	case contains && uname != username:
 		fmt.Println("order has been loaded by another user")
-		return orders.ErrOrderLoadedAnotherUser
+		return ErrOrderLoadedAnotherUser
 	default:
 		return errors.New("unexpected case when trying to load order into storage")
 	}
 }
 
-func (s *MemStorage) GetOrders(ctx context.Context) ([]orders.Order, error) {
+func (s *MemStorage) GetOrders(ctx context.Context) ([]Order, error) {
 	username := ctx.Value(config.UserID("userID"))
 	return s.Orders[username.(string)], nil
 }
@@ -130,18 +121,18 @@ func (s *MemStorage) GetOrdersForAccrual() ([]string, error) {
 	return preparr, nil
 }
 
-func (s *MemStorage) UpdateAccrual([]orders.ProcessedOrder) error {
+func (s *MemStorage) UpdateAccrual([]ProcessedOrder) error {
 	return nil
 }
-func (s *MemStorage) AddAccrualOperation([]orders.ProcessedOrder) error {
+func (s *MemStorage) AddAccrualOperation([]ProcessedOrder) error {
 	return nil
 }
 
-func (s *MemStorage) GetBalance(ctx context.Context) (balance.Balance, error) {
-	var b balance.Balance
+func (s *MemStorage) GetBalance(ctx context.Context) (Balance, error) {
+	var b Balance
 	username := ctx.Value(config.UserID("userID"))
 	if len(s.Operations[username.(string)]) == 0 {
-		return balance.Balance{Current: 0, Withdrawn: 0}, nil
+		return Balance{Current: 0, Withdrawn: 0}, nil
 	}
 
 	for _, op := range s.Operations[username.(string)] {
@@ -155,12 +146,12 @@ func (s *MemStorage) GetBalance(ctx context.Context) (balance.Balance, error) {
 	return b, nil
 }
 
-func (s *MemStorage) GetWithdrawals(ctx context.Context) ([]balance.Operation, error) {
+func (s *MemStorage) GetWithdrawals(ctx context.Context) ([]Operation, error) {
 	username := ctx.Value(config.UserID("userID"))
 	return s.Operations[username.(string)], nil
 }
 
-func (s *MemStorage) Withdraw(ctx context.Context, withdrawq balance.WithdrawQ) error {
+func (s *MemStorage) Withdraw(ctx context.Context, withdrawq WithdrawQ) error {
 	username := ctx.Value(config.UserID("userID"))
 	currentbalance, err := s.GetBalance(ctx)
 	if err != nil {
@@ -169,7 +160,7 @@ func (s *MemStorage) Withdraw(ctx context.Context, withdrawq balance.WithdrawQ) 
 	}
 
 	if currentbalance.Current >= withdrawq.Sum {
-		var withdrawal balance.Operation
+		var withdrawal Operation
 
 		t := time.Now()
 		formattedTime := t.Format(time.RFC3339)
@@ -178,14 +169,12 @@ func (s *MemStorage) Withdraw(ctx context.Context, withdrawq balance.WithdrawQ) 
 			log.Println("error when parsing time in Withdraw op:", err)
 			return err
 		}
-
 		withdrawal.Accrual = withdrawq.Sum
 		withdrawal.Order = withdrawq.Order
 		withdrawal.ProcessedAt = t
-
 		s.Operations[username.(string)] = append(s.Operations[username.(string)], withdrawal)
 	} else {
-		return balance.ErrInsufficientFunds
+		return ErrInsufficientFunds
 	}
 	return nil
 }
