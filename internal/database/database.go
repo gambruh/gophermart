@@ -124,10 +124,12 @@ func (s *SQLdb) InitDatabase() error {
 	if err != nil {
 		return err
 	}
+
 	err = s.CreateOperationsTable()
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -197,7 +199,7 @@ func (s *SQLdb) CreateOrdersTable() error {
 		_, err := s.DB.Exec(createOrdersTableQuery)
 		return err
 	}
-	return err
+	return nil
 
 }
 
@@ -207,7 +209,7 @@ func (s *SQLdb) CreateOperationsTable() error {
 		_, err := s.DB.Exec(createOperationsTableQuery)
 		return err
 	}
-	return err
+	return nil
 }
 
 func (s *SQLdb) Register(login string, password string) error {
