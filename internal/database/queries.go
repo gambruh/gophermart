@@ -2,7 +2,7 @@ package database
 
 // SQL queries
 // database init queries
-var checkTableExistsQuery = `
+const checkTableExistsQuery = `
 	SELECT EXISTS (
 		SELECT 	1 
 		FROM 	information_schema.tables
@@ -10,15 +10,15 @@ var checkTableExistsQuery = `
 	);
 `
 
-var dropOrdersTableQuery = `
+const dropOrdersTableQuery = `
 	DROP TABLE orders CASCADE;
 `
 
-var dropOperationsTableQuery = `
+const dropOperationsTableQuery = `
 	DROP TABLE operations CASCADE;
 `
 
-var createOrdersTableQuery = `
+const createOrdersTableQuery = `
 	CREATE TABLE orders (
 		number TEXT UNIQUE NOT NULL PRIMARY KEY,
 		user_id integer NOT NULL,
@@ -31,7 +31,7 @@ var createOrdersTableQuery = `
 	);
 `
 
-var createOperationsTableQuery = `
+const createOperationsTableQuery = `
 	CREATE TABLE operations (
 		id SERIAL,
 		user_id integer NOT NULL,
@@ -47,37 +47,37 @@ var createOperationsTableQuery = `
 `
 
 // orders queries
-var insertNewOrderQuery = `
+const insertNewOrderQuery = `
 	INSERT INTO orders(number, user_id, status, uploaded_at) 
 	VALUES ($1,$2,$3,TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SS"Z"TZH:TZM'));
 `
 
-var getOrdersQuery = `
+const getOrdersQuery = `
 	SELECT orders.number, orders.status, orders.uploaded_at, users.username
 	FROM orders
 	JOIN users ON orders.user_id = users.id;
 `
 
-var getOrdersByUserQuery = `
+const getOrdersByUserQuery = `
 	SELECT orders.number, orders.status, orders.uploaded_at
 	FROM orders
 	JOIN users ON orders.user_id = users.id
 	WHERE users.username = $1;
 `
 
-var getOrderAccrualQuery = `
+const getOrderAccrualQuery = `
 	SELECT accrual 
 	FROM operations
 	WHERE number = $1`
 
-var getUsernameByNumberQuery = `
+const getUsernameByNumberQuery = `
 	SELECT users.username
 	FROM orders
 	JOIN users ON orders.user_id = users.id
 	WHERE orders.number = $1;
 `
 
-var CheckIDbyUsernameQuery = `
+const CheckIDbyUsernameQuery = `
 	SELECT id 
 	FROM users 
 	WHERE username = $1;
@@ -85,7 +85,7 @@ var CheckIDbyUsernameQuery = `
 
 // accrual worker queries
 
-var AccrualAddQuery = `
+const AccrualAddQuery = `
 	WITH new_order AS (
 		UPDATE orders
 		SET status = $1
@@ -99,14 +99,14 @@ var AccrualAddQuery = `
 		TO_TIMESTAMP($4,'YYYY-MM-DD"T"HH24:MI:SS"Z"TZH:TZM') 
 	);
 `
-var UpdateStatusQuery = `
+const UpdateStatusQuery = `
 	UPDATE orders
 	SET status = $1
 	WHERE number = $2;
 `
 
 // SQL queries
-var GetBalanceQuery = `
+const GetBalanceQuery = `
 	SELECT COALESCE(SUM(accrual),0)
 	FROM operations
 	WHERE user_id = (
@@ -116,7 +116,7 @@ var GetBalanceQuery = `
 		); 
 `
 
-var GetWithdrawnQuery = `
+const GetWithdrawnQuery = `
 	SELECT COALESCE(SUM(accrual),0)
 	FROM operations
 	WHERE user_id = (
@@ -127,7 +127,7 @@ var GetWithdrawnQuery = `
 	AND	accrual < 0; 
 `
 
-var GetWithdrawalsQuery = `
+const GetWithdrawalsQuery = `
 	SELECT number, accrual, processed_at
 	FROM operations
 	WHERE user_id = (
@@ -138,7 +138,7 @@ var GetWithdrawalsQuery = `
 	AND	accrual < 0;
 `
 
-var InsertOperationQuery = `
+const InsertOperationQuery = `
 	INSERT INTO operations (user_id, number, accrual, processed_at)
 	VALUES (
 		(SELECT user_id 
@@ -150,7 +150,7 @@ var InsertOperationQuery = `
 	);
 `
 
-var InsertWithdrawOperation = `
+const InsertWithdrawOperation = `
 	WITH new_order AS (
 		INSERT INTO orders(number, user_id, status, uploaded_at) 
 		VALUES ($2,
@@ -170,14 +170,14 @@ var InsertWithdrawOperation = `
 	);
 `
 
-var getPassQuery = `
+const getPassQuery = `
 		SELECT password
 		FROM passwords
 		JOIN users ON users.id = passwords.user_id
 		WHERE users.username = $1
 	`
 
-var getOrdersAccrualStatusUpdQuery = `
+const getOrdersAccrualStatusUpdQuery = `
 	SELECT number
 	FROM orders
 	WHERE status='NEW' 

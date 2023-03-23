@@ -1,19 +1,19 @@
 package auth
 
 // auth queries
-var CheckUsernameQuery = `
+const CheckUsernameQuery = `
 	SELECT id
 	FROM users 
 	WHERE username = $1;
 `
 
-var CheckPasswordQuery = `
+const CheckPasswordQuery = `
 	SELECT password
 	FROM passwords 
 	WHERE id = $1;
 `
 
-var AddNewUserQuery = `
+const AddNewUserQuery = `
 	WITH new_user AS (
 		INSERT INTO users (username)
 		VALUES ($1)
@@ -23,7 +23,7 @@ var AddNewUserQuery = `
 	VALUES ((SELECT id FROM new_user), $2);
 `
 
-var checkTableExistsQuery = `
+const checkTableExistsQuery = `
 	SELECT EXISTS (
 		SELECT 	1 
 		FROM 	information_schema.tables
@@ -31,7 +31,7 @@ var checkTableExistsQuery = `
 	);
 `
 
-var createUsersTableQuery = `
+const createUsersTableQuery = `
 	CREATE TABLE users (
 		id SERIAL,
 		username text NOT NULL UNIQUE,
@@ -39,7 +39,7 @@ var createUsersTableQuery = `
 	);
 `
 
-var createPasswordsTableQuery = `
+const createPasswordsTableQuery = `
 	CREATE TABLE passwords (
 		id integer PRIMARY KEY,
 		password TEXT NOT NULL,
@@ -50,15 +50,15 @@ var createPasswordsTableQuery = `
 	);
 `
 
-var dropPasswordsTableQuery = `
+const dropPasswordsTableQuery = `
 	DROP TABLE passwords CASCADE;
 `
 
-var dropUsersTableQuery = `
+const dropUsersTableQuery = `
 	DROP TABLE users CASCADE;
 `
 
-var getPassQuery = `
+const getPassQuery = `
 		SELECT password
 		FROM passwords
 		JOIN users ON users.id = passwords.user_id
