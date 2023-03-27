@@ -1,0 +1,35 @@
+version: '3.1'
+
+services:
+
+  db:
+    image: postgres
+    restart: always
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: postgres
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8001:8080
+
+  accrual:
+    image: accrual
+    restart: always
+    ports: 
+      - 8081:8081
+    depends_on:
+      - db
+
+  gophermart:
+    image: gophermart
+    restart: always
+    ports:
+      - 8080:8080
+    depends_on:
+      - accrual
+
+  
