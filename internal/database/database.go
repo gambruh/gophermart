@@ -8,7 +8,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/gambruh/gophermart/cmd/argon2id"
+	"github.com/gambruh/gophermart/internal/argon2id"
 	"github.com/gambruh/gophermart/internal/auth"
 	"github.com/gambruh/gophermart/internal/config"
 	"github.com/gambruh/gophermart/internal/helpers"
@@ -91,7 +91,10 @@ func GetDB() (defstorage Storage) {
 		defstorage = NewStorage()
 	} else {
 		db := NewSQLdb(config.Cfg.Database)
-		db.InitDatabase()
+		err := db.InitDatabase()
+		if err != nil {
+			log.Fatal(err)
+		}
 		defstorage = db
 	}
 	return defstorage
@@ -354,7 +357,7 @@ func (s *SQLdb) GetOrdersForAccrual() (results []string, err error) {
 	return results, nil
 }
 
-func (s *SQLdb) UpdateAccrual(ords []ProcessedOrder) error {
+func (s *SQLdb) UpdateAccrual(ords []ProcessedOrder) (err error) {
 	accAddQ, err := s.DB.Prepare(AccrualAddQuery)
 	if err != nil {
 		log.Println("error in preparing SQL query AccrualAdd:", err)

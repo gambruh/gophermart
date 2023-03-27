@@ -18,9 +18,12 @@ import (
 )
 
 const workersmax = 1
-const pingtime = 2
+const pingtime = 5
 
-var ErrTooManyReqs = errors.New("too many requests")
+var (
+	ErrTooManyReqs = errors.New("too many requests")
+	ErrNoNewOrders = errors.New("no orders for accrual")
+)
 
 type SQLdb struct {
 	db *sql.DB
@@ -59,8 +62,11 @@ func (a *Agent) askAccrual() ([]database.ProcessedOrder, error) {
 	var results []database.ProcessedOrder
 	ordsArr, err := a.Storage.GetOrdersForAccrual()
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNoNewOrders
+		}
 		log.Println("error when trying to get orders from storage to ask accrual:", err)
-		return []database.ProcessedOrder{}, err
+		return nil, err
 	}
 
 	for i := 0; i < len(ordsArr); i++ {
@@ -134,6 +140,7 @@ func (a *Agent) makeGetRequest(ordernumber string) (database.ProcessedOrder, err
 func (a *Agent) PingAccrual() error {
 	input, err := a.askAccrual()
 	if err != nil {
+		log.Println("error in PingAccrual() func of accrualworker:", err)
 		return err
 	}
 	err = a.Storage.UpdateAccrual(input)

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
-	"github.com/gambruh/gophermart/cmd/argon2id"
+	"github.com/gambruh/gophermart/internal/argon2id"
 	"github.com/gambruh/gophermart/internal/config"
 )
 

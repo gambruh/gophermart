@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gambruh/gophermart/internal/accrualworker"
@@ -26,6 +27,6 @@ func main() {
 
 	go agent.CheckAccrual()
 
-	server.ListenAndServe()
+	log.Println(server.ListenAndServe())
 
 }
