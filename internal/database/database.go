@@ -119,11 +119,11 @@ func (s *SQLdb) CheckConn(dbAddress string) error {
 }
 
 func (s *SQLdb) InitDatabase() error {
-	//err := s.CheckNDropTables()
-	//if err != nil {
-	//	return err
-	//}
-	err := s.CreateOrdersTable()
+	err := s.CheckNDropTables()
+	if err != nil {
+		return err
+	}
+	err = s.CreateOrdersTable()
 	if err != nil {
 		return err
 	}
